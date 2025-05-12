@@ -1,68 +1,82 @@
-import transformers
-import torch
-from pprint import pprint
 import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage
+import requests
 
+st.set_page_config(page_title='SmartFit Chatbot (Mistral via OpenRouter)', page_icon="💪")
 
-def load_model_tokenizer(repository):
-    model = transformers.AutoModelForCausalLM.from_pretrained(
-        repository,
-        low_cpu_mem_usage=True,
-        torch_dtype=torch.float16,
-        device_map = 'auto'
-    )
-    tokenizer = transformers.AutoTokenizer.from_pretrained(repository)
-    return model, tokenizer
+# ✅ OpenRouter API-Key (aktuell öffentlich – später austauschen!)
+OPENROUTER_API_KEY = "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"
 
+# 📊 Kalorien-/Proteinrechner
+def calculate_goals(age, weight, goal_weight, height, workouts):
+    height_cm = height * 100
+    bmr = 10 * weight + 6.25 * height_cm - 5 * age + 5
+    activity_factor = 1.2 + (workouts * 0.075)
+    tdee = bmr * activity_factor
+    cal_target = tdee - 500
+    protein_target = goal_weight * 2.2
+    return round(cal_target), round(protein_target)
 
-def get_response(text, model, tokenizer):
-    system_message = "You are a world class fitness instructor and gym trainer, you will give proper exercise and diet plans if asked, always answer the use in detail. Always answer in bullet points.'"
-    prompt = f"<|im_start|>system{system_message}<|im_end|><|im_start|>user\n{text}<|im_end|>\n<|im_start|>assistant:"
-    input_ids = tokenizer(prompt, return_tensors='pt',truncation=True).input_ids.cuda()
-    outputs = model.generate(input_ids=input_ids, max_new_tokens=256 )
-    output= tokenizer.batch_decode(outputs.detach().cpu().numpy(), skip_special_tokens=True)[0][len(prompt):]
+# 🤖 Anfrage an OpenRouter senden
+def query_openrouter(prompt):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "model": "mistralai/mistral-7b-instruct",
+        "messages": [
+            {"role": "system", "content": "You are a multilingual fitness coach. Answer clearly and helpfully."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 300
+    }
+    try:
+        res = requests.post(url, headers=headers, json=body)
+        if res.status_code == 200:
+            return res.json()["choices"][0]["message"]["content"].strip()
+        else:
+            return f"❌ Fehler {res.status_code}: {res.text}"
+    except Exception as e:
+        return f"❌ Verbindungsfehler: {str(e)}"
 
-    return output.split("<|im_end|>")[0]
-
-
-st.set_page_config(page_title='Fitness Instructor', page_icon = "🏃‍♂️")
-
-st.title("Fitness Instructor")
-
-
-##Creating the chat_history
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [
-        AIMessage(content="Hello I am hired as your Fitness Instructor. I will do my best to help you to the best of my Abilities.")
+# 🧠 Chatverlauf initialisieren
+if "history" not in st.session_state:
+    st.session_state.history = [
+        ("Coach", "Hallo! Ich bin dein smarter Fitness-Coach. Frag mich alles zu Kalorien, Training oder Ernährung.")
     ]
 
+# 🖼️ UI
+st.title("💪 SmartFit Chatbot (Mistral 7B über OpenRouter)")
+st.subheader("📊 Kalorien- und Proteinziel berechnen")
 
-user_query = st.chat_input('Enter your Query here...')
+with st.form("zielrechner"):
+    col1, col2 = st.columns(2)
+    with col1:
+        age = st.number_input("Alter", value=31)
+        height = st.number_input("Größe in m", value=1.74)
+    with col2:
+        weight = st.number_input("Aktuelles Gewicht (kg)", value=87.0)
+        goal_weight = st.number_input("Zielgewicht (kg)", value=78.0)
+    workouts = st.slider("Krafttraining/Woche", 0, 7, 3)
+    submitted = st.form_submit_button("🎯 Ziel berechnen")
 
-if user_query is not None and user_query != "":
-    model, tokenizer = load_model_tokenizer("AdityaLavaniya/TinyLlama-Fitness-Instructor")
-    response = get_response(user_query, model, tokenizer)
-    
-    #Updating the chat_history:
-    st.session_state.chat_history.append(HumanMessage(content = user_query ))
-    st.session_state.chat_history.append(AIMessage(content = response))
-    
-    
-    ##Displaying the chat_history in Application
-    for message in st.session_state.chat_history:
-        if isinstance(message, AIMessage):
-            with st.chat_message("AI"):
-                st.write(message.content)
-                
-        elif isinstance(message, HumanMessage):
-            with st.chat_message("Human"):
-                st.write(message.content)
-                
-                
+if submitted:
+    kcal, protein = calculate_goals(age, weight, goal_weight, height, workouts)
+    st.success(f"Kalorienziel: {kcal} kcal/Tag\nProteinziel: {protein} g/Tag")
+    st.info("Du kannst unten im Chat weitere Fragen stellen.")
 
+st.divider()
+st.subheader("💬 Chat mit dem KI-Coach")
 
+user_input = st.chat_input("Frag mich auf Deutsch oder Englisch…")
 
-#response = get_response(text, model, tokenizer)
+if user_input:
+    reply = query_openrouter(user_input)
+    st.session_state.history.append(("Du", user_input))
+    st.session_state.history.append(("Coach", reply))
 
-#st.write(response)
+for speaker, msg in st.session_state.history:
+    with st.chat_message("AI" if speaker == "Coach" else "Human"):
+        st.markdown(msg)
