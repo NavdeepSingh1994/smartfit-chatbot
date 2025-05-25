@@ -3,15 +3,18 @@
 import streamlit as st
 import requests
 from fpdf import FPDF
+from dotenv import load_dotenv
 import tempfile
 import os
 import pandas as pd
 
 st.set_page_config(page_title='SmartFit Coaching Report', page_icon="💪")
 
-OPENROUTER_API_KEY = "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"
-NUTRI_APP_ID = "e39d5a18"
-NUTRI_API_KEY = "290fb7382c83ffc7cf1830a6e2e6a5bc"
+load_dotenv()
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+NUTRI_APP_ID = os.getenv("NUTRI_APP_ID")
+NUTRI_API_KEY = os.getenv("NUTRI_API_KEY")
 
 if "userdata" not in st.session_state:
     st.session_state.userdata = None
