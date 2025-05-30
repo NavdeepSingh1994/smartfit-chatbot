@@ -1,9 +1,11 @@
 # API Keys
 .env
 
-# Verzeichnisse, kein Push
+# Verzeichnisse
+#Virtual Environment
 .venv/
 __pycache__/
+
 .idea/
 *.pyc
 .DS_Store
